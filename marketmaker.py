@@ -17,24 +17,21 @@ BIDS = marketmakerexchange.BIDS
 ASKS = marketmakerexchange.ASKS
 UPDATE_TIME = "updateTime"
 
-# DEX has a lower profit threshold since it has no deposit limit.
-BTC38_PROFIT_THRESHOLD = 0.023
-DEX_PROFIT_THRESHOLD = 0.013
 PROFIT_THRESHOLD = 0.02
 
 MINIMUM_PURCHASE_VOLUME = 500
 # Leave 100 shares in the listing as buffer
-LISTING_VOLUME_BUFFER = 1000
+MIN_LISTING_VOLUME_BUFFER = 500
 
 ACCOUNT_CNY_RESERVE = 50
 ACCOUNT_BTS_RESERVE = 100
 
 # Assumed exchange update interval is under 1 seconds.
 EXCHANGE_UPDATE_INTERVAL = 1
-EXCHANGE_SYNC_TOLERANCE = 4
+EXCHANGE_SYNC_TOLERANCE = 3
 UPDATE_LAG_TOLERANCE = 10
 # Order book information is valid for 4 seconds.
-ORDER_BOOK_VALID_WINDOW = 4
+ORDER_BOOK_VALID_WINDOW = 3
 
 # logger
 log = logging.getLogger(__name__)
@@ -45,15 +42,19 @@ class TradeExchange(object):
         with open("configurations/config.json") as client_config:
             config = json.load(client_config)
 
+        self.exchanges = {}
+
         for exchange_client in config:
             if exchange_client['client'] == dexexchange.EXCHANGE_NAME:
-                self.dexExchange = dexexchange.DexExchange(exchange_client['WITNESS_URL'],
-                                                           exchange_client['ACCOUNT'],
-                                                           exchange_client['SECRET_KEY'])
+                dex_exchange = dexexchange.DexExchange(exchange_client['WITNESS_URL'],
+                                                       exchange_client['ACCOUNT'],
+                                                       exchange_client['SECRET_KEY'])
+                self.exchanges[dex_exchange.get_exchange_name()] = dex_exchange
             if exchange_client['client'] == btc38exchange.EXCHANGE_NAME:
-                self.btc38Exchange = btc38exchange.BTC38Exchange(exchange_client['ACCESS_KEY'],
-                                                                 exchange_client['SECRET_KEY'],
-                                                                 exchange_client['ACCOUNT_ID'])
+                btc38_exchange = btc38exchange.BTC38Exchange(exchange_client['ACCESS_KEY'],
+                                                             exchange_client['SECRET_KEY'],
+                                                             exchange_client['ACCOUNT_ID'])
+                self.exchanges[btc38_exchange.get_exchange_name()] = btc38_exchange
 
 
 # Daemon to update order books. Each exchange requires one daemon. Daemon should not terminate in any cases.
@@ -81,8 +82,8 @@ def order_book_fetcher_daemon(exchange, order_book):
             time.sleep(1)
         except Exception as e:
             if time_since_last_update > UPDATE_LAG_TOLERANCE:
-                log.warn("{}: Exchange: {} receives no update for {} seconds. (Last error: {})"
-                          .format(current_time, exchange_name, time_since_last_update, e))
+                log.warning("{}: Exchange: {} receives no update for {} seconds. (Last error: {})"
+                            .format(current_time, exchange_name, time_since_last_update, e))
 
 
 # Send notification email using the template.
@@ -100,20 +101,18 @@ def send_notification_email(message):
 
 class MarketMaker(object):
     def __init__(self):
-        self.exchange = TradeExchange()
-        btc38_exchange_name = self.exchange.btc38Exchange.get_exchange_name()
-        dex_exchange_name = self.exchange.dexExchange.get_exchange_name()
-        self.account_balance = {btc38_exchange_name: {CNY_CURRENCY_CODE: 0, BTS_CURRENCY_CODE: 0},
-                                dex_exchange_name: {CNY_CURRENCY_CODE: 0, BTS_CURRENCY_CODE: 0}}
+        trade_exchanges = TradeExchange()
+        self.exchanges_dict = trade_exchanges.exchanges
+
+        self.account_balance = {exchange_name: {CNY_CURRENCY_CODE: 0, BTS_CURRENCY_CODE: 0} for
+                                exchange_name, exchange in self.exchanges_dict.items()}
         current_time = datetime.now()
         manager = multiprocessing.Manager()
-        self.order_book = manager.dict({btc38_exchange_name: {BIDS: [0, 0], ASKS: [0, 0], UPDATE_TIME: current_time},
-                                        dex_exchange_name: {BIDS: [0, 0], ASKS: [0, 0], UPDATE_TIME: current_time}})
-        self.exchanges = [self.exchange.btc38Exchange, self.exchange.dexExchange]
-        self.exchanges_name_dict = {btc38_exchange_name: self.exchange.btc38Exchange,
-                                    dex_exchange_name: self.exchange.dexExchange}
+        self.order_book = manager.dict({exchange_name: {BIDS: [0, 0], ASKS: [0, 0], UPDATE_TIME: current_time} for
+                                        exchange_name, exchange in self.exchanges_dict.items()})
 
-        self.last_transaction_time = {btc38_exchange_name: current_time, dex_exchange_name: current_time}
+        self.last_transaction_time = {exchange_name: current_time for
+                                      exchange_name, exchange in self.exchanges_dict.items()}
 
         # Check balance only when transactions were made.
         self.need_balance_check = True
@@ -125,7 +124,7 @@ class MarketMaker(object):
         scheduler.start()
 
         order_book_fetchers = []
-        for exchange in self.exchanges:
+        for exchange_name, exchange in self.exchanges_dict.items():
             p = multiprocessing.Process(target=order_book_fetcher_daemon, args=(exchange, self.order_book))
             p.daemon = True
             order_book_fetchers.append(p)
@@ -152,11 +151,11 @@ class MarketMaker(object):
                 log.error("Failed to update account balance.(Error: {})".format(e))
                 return
 
-        for buyer_name, buyer_exchange in self.exchanges_name_dict.items():
+        for buyer_name, buyer_exchange in self.exchanges_dict.items():
             if self.__is_order_book_valid(buyer_name):
                 profitable_exchange_name = self.__find_profitable_exchange(buyer_exchange)
                 if profitable_exchange_name:
-                    seller_exchange = self.exchanges_name_dict[profitable_exchange_name]
+                    seller_exchange = self.exchanges_dict[profitable_exchange_name]
 
                     purchase_price = self.order_book[buyer_name][ASKS][0]
                     sell_price = self.order_book[profitable_exchange_name][BIDS][0]
@@ -191,7 +190,7 @@ class MarketMaker(object):
         profit = (best_offer[1] - purchase_price) / purchase_price
         if profit - buyer_exchange.get_profit_deduction() > PROFIT_THRESHOLD:
             log.info("Found profitable exchange {}! Profit: {}%."
-                     .format(buyer_name, round(profit, 3) * 100))
+                     .format(buyer_name, round(profit, 5) * 100))
             return best_offer[0]
 
     def __order_books_in_sync(self, base_exchange_name, target_exchange_name):
@@ -213,7 +212,7 @@ class MarketMaker(object):
         self.need_balance_check = True
 
     def __update_account_balance(self):
-        for exchange in self.exchanges:
+        for exchange_name, exchange in self.exchanges_dict.items():
             exchange_name = exchange.get_exchange_name()
             balance = exchange.get_maker_account_balance()
             self.account_balance[exchange_name][CNY_CURRENCY_CODE] = balance[CNY_CURRENCY_CODE]
@@ -232,7 +231,7 @@ class MarketMaker(object):
 
         volume_available = min(buyer_vol, seller_vol)
 
-        if volume_available < MINIMUM_PURCHASE_VOLUME + LISTING_VOLUME_BUFFER:
+        if volume_available < MINIMUM_PURCHASE_VOLUME + MIN_LISTING_VOLUME_BUFFER:
             return 0
 
         buyer_price = self.order_book[buyer_exchange_name][ASKS][0]
@@ -247,7 +246,8 @@ class MarketMaker(object):
             log.info("Insufficient fund on seller account: {}".format(seller_exchange_name))
             return 0
         else:
-            return min(round(usable_cny / buyer_price, 5), usable_bts, volume_available - LISTING_VOLUME_BUFFER)
+            safe_volume = volume_available - max(volume_available * 0.2, MIN_LISTING_VOLUME_BUFFER)
+            return min(round(usable_cny / buyer_price, 5), usable_bts, safe_volume)
 
     @staticmethod
     def __calculate_sell_volume(buyer_exchange, purchase_volume):
@@ -259,7 +259,7 @@ class MarketMaker(object):
             return purchase_volume - 1
 
     def __open_order_exists(self):
-        for exchange in self.exchanges:
+        for exchange_name, exchange in self.exchanges_dict.items():
             orders = exchange.list_my_orders()
             if orders:
                 log.info("{} order still open: {}".format(exchange.get_exchange_name(), orders))

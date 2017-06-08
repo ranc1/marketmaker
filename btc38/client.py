@@ -12,6 +12,7 @@ from exceptions import orderexception
 
 BASE_URL = 'http://api.btc38.com/v1/'
 SUBMIT_ORDER_SUCCESS_STRING = "succ"
+ENCODING = 'utf-8'
 log = logging.getLogger(__name__)
 
 API_PATH_DICT = {
@@ -66,7 +67,7 @@ class Client(object):
 
         if data:
             data = urllib.parse.urlencode(data)
-            data = data.encode('utf-8')
+            data = data.encode(ENCODING)
             req = urllib.request.Request(url=url, data=data, headers=headers)
         else:
             req = urllib.request.Request(url=url, data=None, headers=headers)
@@ -78,7 +79,7 @@ class Client(object):
 
     def get_tickers(self, c='bts', mk_type='cny'):
         result = self.__request('tickers', c=c, mk_type=mk_type)
-        return json.loads(result[0].decode('utf-8'))
+        return json.loads(result[0].decode(ENCODING))
 
     """ Sample:
         {'bids': [[0.4402, 1623.38488], [0.4401, 10366.271967], [0.44, 8204.550502], [0.4392, 2624], ..,],
@@ -88,7 +89,7 @@ class Client(object):
         result = self.__request('depth', c=c, mk_type=mk_type)
         # Might get [b'fail#3']
         try:
-            return json.loads(result[0].decode('utf-8'))
+            return json.loads(result[0].decode(ENCODING))
         except IndexError as e:
             log.error("Index error, result: {}".format(result))
             raise e
@@ -97,7 +98,7 @@ class Client(object):
         timestamp, md5 = self.__get_md5()
         params = {'key': self.access_key, 'time': timestamp, 'md5': md5}
         result = self.__request("balance", params)
-        return json.loads(result[0].decode('utf-8'))
+        return json.loads(result[0].decode(ENCODING))
 
     # type: 1 for buy, and 2 for sell
     def submit_order(self, order_type, mk_type, price, amount, coinname):
@@ -112,7 +113,7 @@ class Client(object):
                   'coinname': coinname}
 
         result = self.__request("submitorder", params)
-        if SUBMIT_ORDER_SUCCESS_STRING not in result[0]:
+        if SUBMIT_ORDER_SUCCESS_STRING not in result[0].decode(ENCODING):
             log.error(result)
             raise orderexception.SubmitOrderFailureException("Failed to place order in BTC38 exchange.")
         return result
@@ -128,7 +129,7 @@ class Client(object):
         result = self.__request("myorders", params)
         if result == [b'no_order']:
             return []
-        return json.loads(result[0].decode('utf-8'))
+        return json.loads(result[0].decode(ENCODING))
 
     def get_my_trade_list(self, mk_type='cny', coinname='bts', page=1):
         timestamp, md5 = self.__get_md5()
@@ -140,13 +141,13 @@ class Client(object):
                   'page': page}
 
         result = self.__request("mytrades", params)
-        return json.loads(result[0].decode('utf-8'))
+        return json.loads(result[0].decode(ENCODING))
 
     def __get_md5(self):
         stamp = int(time.time())
         mdt = "%s_%s" % (self.mdt, stamp)
         md5 = hashlib.md5()
-        md5.update(mdt.encode('utf-8'))
+        md5.update(mdt.encode(ENCODING))
         return stamp, md5.hexdigest()
 
     @retry((urllib.error.URLError, socket.timeout), tries=1, delay=1, backoff=1.1)
