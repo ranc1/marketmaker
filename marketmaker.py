@@ -293,12 +293,12 @@ class MarketMaker(object):
                      .format(buyer_exchange_name, purchase_price, purchase_volume))
             self.last_transaction_time[buyer_exchange_name] = current_time
             buyer_exchange.submit_arbitrage_order(1, purchase_price, purchase_volume)
-        except Exception as e:
-            log.error("Unable to place order at exchange: {}. Error: {}"
-                      .format(buyer_exchange_name, e))
-            return False
-        log.info("Arbitrage: selling to {} at {}, volume: {}".format(seller_exchange_name, sell_price, sell_volume))
-        self.last_transaction_time[seller_exchange_name] = current_time
-        seller_exchange.submit_arbitrage_order(2, sell_price, sell_volume)
 
+            log.info("Arbitrage: selling to {} at {}, volume: {}".format(seller_exchange_name, sell_price, sell_volume))
+            self.last_transaction_time[seller_exchange_name] = current_time
+            seller_exchange.submit_arbitrage_order(2, sell_price, sell_volume)
+        except Exception as e:
+            log.error("Unable to place order!. Error: {}".format(buyer_exchange_name, e))
+            traceback.print_exc()
+            return False
         return True
