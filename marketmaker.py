@@ -17,7 +17,7 @@ BIDS = marketmakerexchange.BIDS
 ASKS = marketmakerexchange.ASKS
 UPDATE_TIME = "updateTime"
 
-PROFIT_THRESHOLD = 0.02
+PROFIT_THRESHOLD = 0.03
 
 MINIMUM_PURCHASE_VOLUME = 500
 # Leave 100 shares in the listing as buffer
@@ -27,11 +27,11 @@ ACCOUNT_CNY_RESERVE = 50
 ACCOUNT_BTS_RESERVE = 100
 
 # Assumed exchange update interval is under 1 seconds.
-EXCHANGE_UPDATE_INTERVAL = 1
-EXCHANGE_SYNC_TOLERANCE = 3
+EXCHANGE_UPDATE_INTERVAL = 0.5
+EXCHANGE_SYNC_TOLERANCE = 2
 UPDATE_LAG_TOLERANCE = 10
 # Order book information is valid for 4 seconds.
-ORDER_BOOK_VALID_WINDOW = 3
+ORDER_BOOK_VALID_WINDOW = 2
 
 # logger
 log = logging.getLogger(__name__)
@@ -79,7 +79,7 @@ def order_book_fetcher_daemon(exchange, order_book):
                 exchange_order_book[UPDATE_TIME] = current_time
 
             order_book[exchange_name] = exchange_order_book
-            time.sleep(1)
+            time.sleep(0.5)
         except Exception as e:
             if time_since_last_update > UPDATE_LAG_TOLERANCE:
                 log.warning("{}: Exchange: {} receives no update for {} seconds. (Last error: {})"
@@ -135,7 +135,7 @@ class MarketMaker(object):
         while all(map(multiprocessing.Process.is_alive, order_book_fetchers)):
             try:
                 self.__speculate()
-                time.sleep(0.5)
+                time.sleep(0.3)
             except Exception as e:
                 traceback.print_exc()
                 log.error("Unexpected exception caught in main execution. (Error: {})".format(e))
@@ -157,20 +157,28 @@ class MarketMaker(object):
                 if profitable_exchange_name:
                     seller_exchange = self.exchanges_dict[profitable_exchange_name]
 
-                    purchase_price = self.order_book[buyer_name][ASKS][0]
-                    sell_price = self.order_book[profitable_exchange_name][BIDS][0]
+                    # BTC38 can only accept price with 5 decimal places, and volume up to 6 decimal places.
+                    purchase_price = round(self.order_book[buyer_name][ASKS][0], 5)
+                    sell_price = round(self.order_book[profitable_exchange_name][BIDS][0], 5)
 
-                    purchase_volume = self.__calculate_purchase_volume(buyer_exchange, seller_exchange)
-                    sell_volume = self.__calculate_sell_volume(buyer_exchange, purchase_volume)
+                    purchase_volume = round(self.__calculate_purchase_volume(buyer_exchange, seller_exchange), 6)
+                    sell_volume = round(self.__calculate_sell_volume(buyer_exchange, purchase_volume), 6)
 
-                    order_placed = self.__place_arbitrage_orders(buyer_exchange, purchase_price, purchase_volume,
-                                                                 seller_exchange, sell_price, sell_volume)
-
-                    if order_placed:
-                        send_notification_email("Arbitrage: purchase from {} at {}, volume: {}\n"
-                                                "Arbitrage: sell to {} at {}, volume: {}"
-                                                .format(buyer_name, purchase_price, purchase_volume,
-                                                        profitable_exchange_name, sell_price, sell_volume))
+                    if sell_volume < MINIMUM_PURCHASE_VOLUME:
+                        log.info("Under minimum arbitrage volume: {}".format(sell_volume))
+                    else:
+                        log.info("Placing arbitrage order...")
+                        order_placed = self.__place_arbitrage_orders(buyer_exchange, purchase_price, purchase_volume,
+                                                                     seller_exchange, sell_price, sell_volume)
+                        if order_placed:
+                            send_notification_email("Arbitrage: purchase from {} at {}, volume: {}. Total: {}\n"
+                                                    "Arbitrage: sell to {} at {}, volume: {}. Total: {}"
+                                                    .format(buyer_name, purchase_price, purchase_volume,
+                                                            purchase_price * purchase_volume,
+                                                            profitable_exchange_name, sell_price, sell_volume,
+                                                            sell_price * sell_volume))
+                        else:
+                            send_notification_email("Failed to place arbitrage order!")
 
     """
         Find the highest bidder in the order book. If the profit is higher than the threshold,
@@ -179,8 +187,7 @@ class MarketMaker(object):
     def __find_profitable_exchange(self, buyer_exchange):
         buyer_name = buyer_exchange.get_exchange_name()
         target_order_book = {exchange_name: order_book[BIDS][0] for exchange_name, order_book in self.order_book.items()
-                             if self.__is_order_book_valid(exchange_name) and exchange_name != buyer_name
-                             and self.__order_books_in_sync(buyer_name, exchange_name)}
+                             if self.__is_order_book_valid(exchange_name) and exchange_name != buyer_name}
 
         if len(target_order_book) == 0:
             return None
@@ -189,8 +196,8 @@ class MarketMaker(object):
         purchase_price = self.order_book[buyer_name][ASKS][0]
         profit = (best_offer[1] - purchase_price) / purchase_price
         if profit - buyer_exchange.get_profit_deduction() > PROFIT_THRESHOLD:
-            log.info("Found profitable exchange {}! Profit: {}%."
-                     .format(buyer_name, round(profit, 5) * 100))
+            log.info("Found profitable exchange {}! Profit: {:.2f}%."
+                     .format(buyer_name, profit * 100))
             return best_offer[0]
 
     def __order_books_in_sync(self, base_exchange_name, target_exchange_name):
@@ -247,7 +254,7 @@ class MarketMaker(object):
             return 0
         else:
             safe_volume = volume_available - max(volume_available * 0.2, MIN_LISTING_VOLUME_BUFFER)
-            return min(round(usable_cny / buyer_price, 5), usable_bts, safe_volume)
+            return min(usable_cny / buyer_price, usable_bts, safe_volume)
 
     @staticmethod
     def __calculate_sell_volume(buyer_exchange, purchase_volume):
@@ -273,10 +280,6 @@ class MarketMaker(object):
     """
     def __place_arbitrage_orders(self, buyer_exchange, purchase_price, purchase_volume,
                                  seller_exchange, sell_price, sell_volume):
-        if sell_volume < MINIMUM_PURCHASE_VOLUME:
-            log.info("Under minimum arbitrage volume: {}".format(sell_volume))
-            return False
-
         buyer_exchange_name = buyer_exchange.get_exchange_name()
         seller_exchange_name = seller_exchange.get_exchange_name()
 
@@ -286,16 +289,16 @@ class MarketMaker(object):
         current_time = datetime.now()
 
         try:
-            buyer_exchange.submit_arbitrage_order(1, purchase_price, purchase_volume)
-            self.last_transaction_time[buyer_exchange_name] = current_time
-            log.info("Arbitrage: purchase from {} at {}, volume: {}"
+            log.info("Arbitrage: purchasing from {} at {}, volume: {}"
                      .format(buyer_exchange_name, purchase_price, purchase_volume))
+            self.last_transaction_time[buyer_exchange_name] = current_time
+            buyer_exchange.submit_arbitrage_order(1, purchase_price, purchase_volume)
         except Exception as e:
             log.error("Unable to place order at exchange: {}. Error: {}"
                       .format(buyer_exchange_name, e))
             return False
-        seller_exchange.submit_arbitrage_order(2, sell_price, sell_volume)
+        log.info("Arbitrage: selling to {} at {}, volume: {}".format(seller_exchange_name, sell_price, sell_volume))
         self.last_transaction_time[seller_exchange_name] = current_time
-        log.info("Arbitrage: sell to {} at {}, volume: {}".format(seller_exchange_name, sell_price, sell_volume))
+        seller_exchange.submit_arbitrage_order(2, sell_price, sell_volume)
 
         return True

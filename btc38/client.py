@@ -100,7 +100,9 @@ class Client(object):
         result = self.__request("balance", params)
         return json.loads(result[0].decode(ENCODING))
 
-    # type: 1 for buy, and 2 for sell
+    """ Submit order. Max precision for cny is 5 digits, for btc is 8. Max precision for amount is 6.
+        type: 1 for buy, and 2 for sell
+    """
     def submit_order(self, order_type, mk_type, price, amount, coinname):
         timestamp, md5 = self.__get_md5()
         params = {'key': self.access_key,
@@ -152,4 +154,4 @@ class Client(object):
 
     @retry((urllib.error.URLError, socket.timeout), tries=1, delay=1, backoff=1.1)
     def __urlopen_with_retry(self, request):
-        return urllib.request.urlopen(request, timeout=4)
+        return urllib.request.urlopen(request, timeout=2)
