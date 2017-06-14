@@ -8,10 +8,11 @@ import hashlib
 from retry import retry
 import logging
 import socket
-from exceptions import orderexception
+from exceptions import exchangeexceptions
 
 BASE_URL = 'http://api.btc38.com/v1/'
 SUBMIT_ORDER_SUCCESS_STRING = "succ"
+ORDER_BOOK_FAILURE_STRING = "fail"
 ENCODING = 'utf-8'
 log = logging.getLogger(__name__)
 
@@ -87,12 +88,14 @@ class Client(object):
     """
     def get_depth(self, c='bts', mk_type='cny'):
         result = self.__request('depth', c=c, mk_type=mk_type)
-        # Might get [b'fail#3']
-        try:
+        # Might get [b'fail#3'] or []
+        if not result:
+            raise exchangeexceptions.UpdateOrderBookFailureException("Retrieved order book has no entries.")
+        else:
+            order_book = result[0].decode(ENCODING)
+            if ORDER_BOOK_FAILURE_STRING in order_book:
+                raise exchangeexceptions.UpdateOrderBookFailureException("Failed to retrieve order book.")
             return json.loads(result[0].decode(ENCODING))
-        except IndexError as e:
-            log.error("Index error, result: {}".format(result))
-            raise e
 
     def get_my_balance(self):
         timestamp, md5 = self.__get_md5()
@@ -118,7 +121,7 @@ class Client(object):
         result = self.__request("submitorder", params, timeout=4)
         if SUBMIT_ORDER_SUCCESS_STRING not in result[0].decode(ENCODING):
             log.error(result)
-            raise orderexception.SubmitOrderFailureException("Failed to place order in BTC38 exchange.")
+            raise exchangeexceptions.SubmitOrderFailureException("Failed to place order in BTC38 exchange.")
         return result
 
     def cancel_order(self, mk_type, order_id):

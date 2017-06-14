@@ -10,6 +10,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import multiprocessing
 from notifications import emailsender
 import operator
+import math
 
 CNY_CURRENCY_CODE = marketmakerexchange.CNY
 BTS_CURRENCY_CODE = marketmakerexchange.BTS
@@ -17,7 +18,7 @@ BIDS = marketmakerexchange.BIDS
 ASKS = marketmakerexchange.ASKS
 UPDATE_TIME = "updateTime"
 
-PROFIT_THRESHOLD = 0.03
+PROFIT_THRESHOLD = 0.02
 
 MINIMUM_PURCHASE_VOLUME = 500
 # Leave 100 shares in the listing as buffer
@@ -26,8 +27,6 @@ MIN_LISTING_VOLUME_BUFFER = 500
 ACCOUNT_CNY_RESERVE = 50
 ACCOUNT_BTS_RESERVE = 100
 
-# Assumed exchange update interval is under 1 seconds.
-EXCHANGE_UPDATE_INTERVAL = 0.5
 EXCHANGE_SYNC_TOLERANCE = 2
 UPDATE_LAG_TOLERANCE = 10
 # Order book information is valid for 4 seconds.
@@ -61,29 +60,34 @@ class TradeExchange(object):
 def order_book_fetcher_daemon(exchange, order_book):
     while True:
         exchange_name = exchange.get_exchange_name()
-        current_time = datetime.now()
+        # Multiprocessing manager cannot update nested items in the dictionary, therefore, I have to create a copy of
+        # the nested dictionary, update it, and then put it back into the main dictionary.
         exchange_order_book = order_book[exchange_name]
-        time_since_last_update = (current_time - exchange_order_book[UPDATE_TIME]).total_seconds()
+        time_since_last_update = 0
 
         try:
             top_offers = exchange.get_top_offers()
-            order_book_bid = exchange_order_book[BIDS]
-            order_book_ask = exchange_order_book[ASKS]
-            # Added this check to prevent exchanges not updating order book when orders change.
-            if order_book_bid == top_offers[0] and order_book_ask == top_offers[1]:
-                if time_since_last_update > EXCHANGE_UPDATE_INTERVAL:
-                    exchange_order_book[UPDATE_TIME] = current_time
-            else:
-                exchange_order_book[BIDS] = top_offers[0]
-                exchange_order_book[ASKS] = top_offers[1]
-                exchange_order_book[UPDATE_TIME] = current_time
 
+            current_time = datetime.now()
+            time_since_last_update = (current_time - exchange_order_book[UPDATE_TIME]).total_seconds()
+            exchange_order_book[BIDS] = top_offers[0]
+            exchange_order_book[ASKS] = top_offers[1]
+            exchange_order_book[UPDATE_TIME] = current_time
             order_book[exchange_name] = exchange_order_book
+
             time.sleep(0.5)
         except Exception as e:
             if time_since_last_update > UPDATE_LAG_TOLERANCE:
-                log.warning("{}: Exchange: {} receives no update for {} seconds. (Last error: {})"
-                            .format(current_time, exchange_name, time_since_last_update, e))
+                log.warning("Exchange: {} receives no update for {} seconds. (Last error: {})"
+                            .format(exchange_name, time_since_last_update, e))
+
+
+def round_up(value, decimal=0):
+    return math.ceil(value * (10 ** decimal)) / (10 ** decimal)
+
+
+def round_down(value, decimal=0):
+    return math.floor(value * (10 ** decimal)) / (10 ** decimal)
 
 
 # Send notification email using the template.
@@ -158,8 +162,9 @@ class MarketMaker(object):
                     seller_exchange = self.exchanges_dict[profitable_exchange_name]
 
                     # BTC38 can only accept price with 5 decimal places, and volume up to 6 decimal places.
-                    purchase_price = round(self.order_book[buyer_name][ASKS][0], 5)
-                    sell_price = round(self.order_book[profitable_exchange_name][BIDS][0], 5)
+                    # Round up the purchase price, and round down the sell price to guarantee profit.
+                    purchase_price = round_up(self.order_book[buyer_name][ASKS][0], 5)
+                    sell_price = round_down(self.order_book[profitable_exchange_name][BIDS][0], 5)
 
                     purchase_volume = round(self.__calculate_purchase_volume(buyer_exchange, seller_exchange), 6)
                     sell_volume = round(self.__calculate_sell_volume(buyer_exchange, purchase_volume), 6)

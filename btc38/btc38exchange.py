@@ -27,10 +27,11 @@ class BTC38Exchange(marketmakerexchange.MarketMakerExchange):
 
     def get_top_offers(self):
         orders = self.client.get_depth()
-        bids = orders[marketmakerexchange.BIDS]
-        asks = orders[marketmakerexchange.ASKS]
-        return [self.__get_true_orders(bids),
-                self.__get_true_orders(asks)]
+        if orders:
+            bids = orders[marketmakerexchange.BIDS]
+            asks = orders[marketmakerexchange.ASKS]
+            return [self.__get_true_orders(bids),
+                    self.__get_true_orders(asks)]
 
     def submit_arbitrage_order(self, order_type, price, volume):
         self.client.submit_order(order_type, 'cny', price, volume, 'bts')
