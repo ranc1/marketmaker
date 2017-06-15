@@ -4,7 +4,7 @@ import logging
 
 log = logging.getLogger(__name__)
 EXCHANGE_NAME = "dex"
-DEX_PROFIT_DEDUCTION = 0.014
+DEX_PROFIT_DEDUCTION = 0.01
 
 
 class DexExchange(marketmakerexchange.MarketMakerExchange):

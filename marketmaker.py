@@ -163,8 +163,8 @@ class MarketMaker(object):
 
                     # BTC38 can only accept price with 5 decimal places, and volume up to 6 decimal places.
                     # Round up the purchase price, and round down the sell price to guarantee profit.
-                    purchase_price = round_up(self.order_book[buyer_name][ASKS][0], 5)
-                    sell_price = round_down(self.order_book[profitable_exchange_name][BIDS][0], 5)
+                    purchase_price = round_up(self.order_book[buyer_name][ASKS][0], 4)
+                    sell_price = round_down(self.order_book[profitable_exchange_name][BIDS][0], 4)
 
                     purchase_volume = round(self.__calculate_purchase_volume(buyer_exchange, seller_exchange), 6)
                     sell_volume = round(self.__calculate_sell_volume(buyer_exchange, purchase_volume), 6)

@@ -13,6 +13,12 @@ from exceptions import exchangeexceptions
 BASE_URL = 'http://api.btc38.com/v1/'
 SUBMIT_ORDER_SUCCESS_STRING = "succ"
 ORDER_BOOK_FAILURE_STRING = "fail"
+CNY_SYMBOL = 'cny'
+BTS_SYMBOL = 'bts'
+BTC_SYMBOL = 'btc'
+AMOUNT_KEY = 'amount'
+CNY_BALANCE = 'cny_balance'
+BTS_BALANCE = 'bts_balance'
 ENCODING = 'utf-8'
 log = logging.getLogger(__name__)
 
@@ -39,6 +45,12 @@ API_PATH_DICT = {
 
     # market required in url query string as '?market={market}'
     'mytrades': 'getMyTradeList.php',
+}
+
+PRECISION = {
+    CNY_SYMBOL: 4,
+    BTC_SYMBOL: 8,
+    AMOUNT_KEY: 6
 }
 
 
@@ -78,7 +90,7 @@ class Client(object):
         resp.close()
         return result
 
-    def get_tickers(self, c='bts', mk_type='cny'):
+    def get_tickers(self, c=BTS_SYMBOL, mk_type=CNY_SYMBOL):
         result = self.__request('tickers', c=c, mk_type=mk_type)
         return json.loads(result[0].decode(ENCODING))
 
@@ -86,7 +98,7 @@ class Client(object):
         {'bids': [[0.4402, 1623.38488], [0.4401, 10366.271967], [0.44, 8204.550502], [0.4392, 2624], ..,],
         'asks': [[0.4444, 4127.835417], [0.4457, 7358.901461], [0.4458, 10000], [0.4459, 9170.8], ...]}
     """
-    def get_depth(self, c='bts', mk_type='cny'):
+    def get_depth(self, c=BTS_SYMBOL, mk_type=CNY_SYMBOL):
         result = self.__request('depth', c=c, mk_type=mk_type)
         # Might get [b'fail#3'] or []
         if not result:
@@ -109,19 +121,22 @@ class Client(object):
     """
     def submit_order(self, order_type, mk_type, price, amount, coinname):
         timestamp, md5 = self.__get_md5()
+        prec_price = '{:.{prec}f}'.format(price, prec=PRECISION[mk_type])
+        prec_amount = '{:.{prec}f}'.format(amount, prec=PRECISION[AMOUNT_KEY])
+        log.info(prec_price)
         params = {'key': self.access_key,
                   'time': timestamp,
                   'md5': md5,
                   'type': order_type,
                   'mk_type': mk_type,
-                  'price': price,
-                  'amount': amount,
+                  'price': prec_price,
+                  'amount': prec_amount,
                   'coinname': coinname}
 
         result = self.__request("submitorder", params, timeout=4)
         if SUBMIT_ORDER_SUCCESS_STRING not in result[0].decode(ENCODING):
-            log.error(result)
-            raise exchangeexceptions.SubmitOrderFailureException("Failed to place order in BTC38 exchange.")
+            raise exchangeexceptions.SubmitOrderFailureException(
+                "Failed to place order in BTC38 exchange. Response: {}".format(result))
         return result
 
     def cancel_order(self, mk_type, order_id):
@@ -137,7 +152,7 @@ class Client(object):
             return []
         return json.loads(result[0].decode(ENCODING))
 
-    def get_my_trade_list(self, mk_type='cny', coinname='bts', page=1):
+    def get_my_trade_list(self, mk_type=CNY_SYMBOL, coinname=BTS_SYMBOL, page=1):
         timestamp, md5 = self.__get_md5()
         params = {'key': self.access_key,
                   'time': timestamp,

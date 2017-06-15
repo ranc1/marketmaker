@@ -3,7 +3,7 @@ from btc38 import client
 import logging
 
 EXCHANGE_NAME = "btc38"
-BTC38_PROFIT_DEDUCTION = 0.014
+BTC38_PROFIT_DEDUCTION = 0.054
 log = logging.getLogger(__name__)
 
 
@@ -19,8 +19,8 @@ class BTC38Exchange(marketmakerexchange.MarketMakerExchange):
 
     def get_maker_account_balance(self):
         balance = self.client.get_my_balance()
-        return {marketmakerexchange.CNY: float(balance["cny_balance"]),
-                marketmakerexchange.BTS: float(balance["bts_balance"])}
+        return {marketmakerexchange.CNY: float(balance[client.CNY_BALANCE]),
+                marketmakerexchange.BTS: float(balance[client.BTS_BALANCE])}
 
     def get_exchange_name(self):
         return EXCHANGE_NAME
@@ -34,7 +34,7 @@ class BTC38Exchange(marketmakerexchange.MarketMakerExchange):
                     self.__get_true_orders(asks)]
 
     def submit_arbitrage_order(self, order_type, price, volume):
-        self.client.submit_order(order_type, 'cny', price, volume, 'bts')
+        self.client.submit_order(order_type, client.CNY_SYMBOL, price, volume, client.BTS_SYMBOL)
 
     @staticmethod
     def __get_true_orders(orders):
