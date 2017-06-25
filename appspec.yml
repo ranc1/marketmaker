@@ -73,7 +73,7 @@ hooks:
 # During the ApplicationInstall deployment lifecycle event, run the commands 
 #   in the script specified in "location".
   ApplicationStart:
-    - location: script/start_application.sh    
+    - location: script/start_application
       timeout: 10
 # During the ValidateService deployment lifecycle event, run the commands 
 #   in the script specified in "location".
