@@ -75,7 +75,7 @@ def order_book_fetcher_daemon(exchange, order_book):
             exchange_order_book[UPDATE_TIME] = current_time
             order_book[exchange_name] = exchange_order_book
 
-            time.sleep(0.5)
+            time.sleep(0.3)
         except Exception as e:
             if time_since_last_update > UPDATE_LAG_TOLERANCE:
                 log.warning("Exchange: {} receives no update for {} seconds. (Last error: {})"

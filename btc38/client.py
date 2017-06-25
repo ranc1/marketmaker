@@ -113,7 +113,12 @@ class Client(object):
         timestamp, md5 = self.__get_md5()
         params = {'key': self.access_key, 'time': timestamp, 'md5': md5}
         result = self.__request("balance", params)
-        return json.loads(result[0].decode(ENCODING))
+        response = result[0].decode(ENCODING)
+        try:
+            return json.loads(response)
+        except ValueError:
+            raise exchangeexceptions.RetrieveBalanceFailureException(
+                "Failed to retrieve account balance. Response: {}".format(response))
 
     """ Submit order. Max precision for cny is 5 digits, for btc is 8. Max precision for amount is 6.
         Submit order API has a longer timeout so that orders have a better chance to be placed.
