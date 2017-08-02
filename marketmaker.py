@@ -29,8 +29,8 @@ ACCOUNT_BTS_RESERVE = 100
 
 EXCHANGE_SYNC_TOLERANCE = 2
 UPDATE_LAG_TOLERANCE = 10
-# Order book information is valid for 4 seconds.
-ORDER_BOOK_VALID_WINDOW = 2
+# Order book information is valid for 1 second.
+ORDER_BOOK_VALID_WINDOW = 1
 
 # logger
 log = logging.getLogger(__name__)
@@ -292,16 +292,16 @@ class MarketMaker(object):
         self.need_balance_check = True
 
         try:
+            log.info("Arbitrage: selling to {} at {}, volume: {}".format(seller_exchange_name, sell_price, sell_volume))
+            seller_exchange.submit_arbitrage_order(2, sell_price, sell_volume)
+            current_time = datetime.now()
+            self.last_transaction_time[seller_exchange_name] = current_time
+
             log.info("Arbitrage: purchasing from {} at {}, volume: {}"
                      .format(buyer_exchange_name, purchase_price, purchase_volume))
             buyer_exchange.submit_arbitrage_order(1, purchase_price, purchase_volume)
             current_time = datetime.now()
             self.last_transaction_time[buyer_exchange_name] = current_time
-
-            log.info("Arbitrage: selling to {} at {}, volume: {}".format(seller_exchange_name, sell_price, sell_volume))
-            seller_exchange.submit_arbitrage_order(2, sell_price, sell_volume)
-            current_time = datetime.now()
-            self.last_transaction_time[seller_exchange_name] = current_time
         except Exception as e:
             log.error("Unable to place order!. Error: {}".format(buyer_exchange_name, e))
             traceback.print_exc()
