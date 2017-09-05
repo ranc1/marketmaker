@@ -1,4 +1,7 @@
+import concurrent.futures
 import json
+from threading import Thread
+
 from btc38 import btc38exchange
 from dex import dexexchange
 import logging
@@ -285,25 +288,34 @@ class MarketMaker(object):
     """
     def __place_arbitrage_orders(self, buyer_exchange, purchase_price, purchase_volume,
                                  seller_exchange, sell_price, sell_volume):
-        buyer_exchange_name = buyer_exchange.get_exchange_name()
-        seller_exchange_name = seller_exchange.get_exchange_name()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            seller_thread_future = executor.submit(fn=self.__place_orders_thread,
+                                                   args=(seller_exchange, 2, sell_price, sell_volume))
+            buyer_thread_future = executor.submit(fn=self.__place_orders_thread,
+                                                  args=(buyer_exchange, 1, purchase_price, purchase_volume))
 
-        # If this method is called, successful or not, we need to recheck the account balance.
-        self.need_balance_check = True
+            seller_exception = seller_thread_future.exception()
+            buyer_exception = buyer_thread_future.exception()
 
-        try:
-            log.info("Arbitrage: selling to {} at {}, volume: {}".format(seller_exchange_name, sell_price, sell_volume))
-            seller_exchange.submit_arbitrage_order(2, sell_price, sell_volume)
-            current_time = datetime.now()
-            self.last_transaction_time[seller_exchange_name] = current_time
+            # If this method is called, successful or not, we need to recheck the account balance.
+            self.__request_account_balance_checking()
 
-            log.info("Arbitrage: purchasing from {} at {}, volume: {}"
-                     .format(buyer_exchange_name, purchase_price, purchase_volume))
-            buyer_exchange.submit_arbitrage_order(1, purchase_price, purchase_volume)
-            current_time = datetime.now()
-            self.last_transaction_time[buyer_exchange_name] = current_time
-        except Exception as e:
-            log.error("Unable to place order!. Error: {}".format(buyer_exchange_name, e))
-            traceback.print_exc()
-            return False
+            if seller_exception is not None or buyer_exception is not None:
+                error_email = "Seller exception: " + seller_exception + "\nBuyer exception: " + buyer_exception
+                send_notification_email(error_email)
+                return False
+
         return True
+
+    def __place_orders_thread(self, exchange, order_type, price, volume):
+        exchange_name = exchange.get_exchange_name()
+        order_message = "Place order at: {} - order type {}, at {}, volume: {}".format(
+            exchange_name, order_type, price, volume)
+        try:
+            exchange.submit_arbitrage_order(order_type, price, volume)
+            current_time = datetime.now()
+            self.last_transaction_time[exchange_name] = current_time
+            log.info("Arbitrage order placed successfully" + order_message)
+        except Exception as e:
+            log.error("Failed to place order - " + order_message + "Error: {}.".format(e))
+            raise e

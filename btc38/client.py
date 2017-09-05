@@ -128,7 +128,6 @@ class Client(object):
         timestamp, md5 = self.__get_md5()
         prec_price = '{:.{prec}f}'.format(price, prec=PRECISION[mk_type])
         prec_amount = '{:.{prec}f}'.format(amount, prec=PRECISION[AMOUNT_KEY])
-        log.info(prec_price)
         params = {'key': self.access_key,
                   'time': timestamp,
                   'md5': md5,
