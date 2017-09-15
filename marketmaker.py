@@ -289,10 +289,10 @@ class MarketMaker(object):
     def __place_arbitrage_orders(self, buyer_exchange, purchase_price, purchase_volume,
                                  seller_exchange, sell_price, sell_volume):
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-            seller_thread_future = executor.submit(fn=self.__place_orders_thread,
-                                                   args=(seller_exchange, 2, sell_price, sell_volume))
-            buyer_thread_future = executor.submit(fn=self.__place_orders_thread,
-                                                  args=(buyer_exchange, 1, purchase_price, purchase_volume))
+            seller_thread_future = executor.submit(self.__place_orders_thread,
+                                                   seller_exchange, 2, sell_price, sell_volume)
+            buyer_thread_future = executor.submit(self.__place_orders_thread,
+                                                  buyer_exchange, 1, purchase_price, purchase_volume)
 
             seller_exception = seller_thread_future.exception()
             buyer_exception = buyer_thread_future.exception()
@@ -301,7 +301,7 @@ class MarketMaker(object):
             self.__request_account_balance_checking()
 
             if seller_exception is not None or buyer_exception is not None:
-                error_email = "Seller exception: " + seller_exception + "\nBuyer exception: " + buyer_exception
+                error_email = "Seller exception: {}\nBuyer exception: {}".format(seller_exception, buyer_exception)
                 send_notification_email(error_email)
                 return False
 
@@ -317,5 +317,5 @@ class MarketMaker(object):
             self.last_transaction_time[exchange_name] = current_time
             log.info("Arbitrage order placed successfully" + order_message)
         except Exception as e:
-            log.error("Failed to place order - " + order_message + "Error: {}.".format(e))
+            log.error("Failed to place order - " + order_message + ". Error: {}.".format(e))
             raise e

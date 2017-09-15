@@ -138,9 +138,10 @@ class Client(object):
                   'coinname': coinname}
 
         result = self.__request("submitorder", params, timeout=4)
-        if SUBMIT_ORDER_SUCCESS_STRING not in result[0].decode(ENCODING):
+        decoded_response = result[0].decode(ENCODING)
+        if SUBMIT_ORDER_SUCCESS_STRING not in decoded_response:
             raise exchangeexceptions.SubmitOrderFailureException(
-                "Failed to place order in BTC38 exchange. Response: {}".format(result))
+                "Failed to place order in BTC38 exchange. Response: {}".format(decoded_response))
         return result
 
     def cancel_order(self, mk_type, order_id):
