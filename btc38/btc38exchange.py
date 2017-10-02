@@ -3,7 +3,7 @@ from btc38 import client
 import logging
 
 EXCHANGE_NAME = "btc38"
-BTC38_PROFIT_DEDUCTION = 0.014
+BTC38_PROFIT_DEDUCTION = 10.014
 log = logging.getLogger(__name__)
 
 

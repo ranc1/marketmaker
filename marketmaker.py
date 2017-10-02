@@ -1,19 +1,19 @@
 import concurrent.futures
 import json
-from threading import Thread
+import logging
+import math
+import multiprocessing
+import operator
+import time
+import traceback
+from datetime import datetime
+
+from apscheduler.schedulers.background import BackgroundScheduler
 
 from btc38 import btc38exchange
-from dex import dexexchange
-import logging
 from data import marketmakerexchange
-from datetime import datetime
-import traceback
-import time
-from apscheduler.schedulers.background import BackgroundScheduler
-import multiprocessing
+from dex import dexexchange
 from notifications import emailsender
-import operator
-import math
 
 CNY_CURRENCY_CODE = marketmakerexchange.CNY
 BTS_CURRENCY_CODE = marketmakerexchange.BTS
@@ -21,7 +21,7 @@ BIDS = marketmakerexchange.BIDS
 ASKS = marketmakerexchange.ASKS
 UPDATE_TIME = "updateTime"
 
-PROFIT_THRESHOLD = 0.02
+PROFIT_THRESHOLD = 0.00
 
 MINIMUM_PURCHASE_VOLUME = 500
 # Leave 100 shares in the listing as buffer
